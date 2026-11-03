@@ -113,17 +113,22 @@ def load_or_create_config(xml_file_path, filter_patterns=None, force_reconfigure
     print(f"\nConfiguration parameter matrix successfully saved to local schema path '{CONFIG_FILE}'.")
     return config_data
 
-def generate_graph(daily_balances, account_names, show_month_end_only=False):
+def generate_graph(daily_balances, account_names, show_month_end_only=False, timeline_data=None):
     """
     Renders timeline balances. Custom-tailored to label x-axis strictly monthly, 
     and plot markers only on days where the balance actually changed.
+    Hover over any marker to see the transactions that occurred on that day.
     """
     plt.figure(figsize=(12, 6))
+    ax = plt.gca()
     
     sorted_dates = sorted(daily_balances.keys())
+    timeline_data = timeline_data or {}
     
+    # Storage for all plotted points: (artist, xdata, ydata, info_texts)
+    plotted_points = []
+
     if show_month_end_only:
-        # Group by month end
         month_groups = defaultdict(list)
         for d in sorted_dates:
             month_key = date(d.year, d.month, 1)
@@ -134,49 +139,41 @@ def generate_graph(daily_balances, account_names, show_month_end_only=False):
         for m_key in sorted(month_groups.keys()):
             last_date_of_month = max(month_groups[m_key])
             plot_dates.append(last_date_of_month)
-            for acc_id in account_names.keys():
+            for acc_id, name in account_names.items():
                 plot_data[acc_id].append(daily_balances[last_date_of_month][acc_id])
                 
         for acc_id, name in account_names.items():
-            plt.plot(plot_dates, plot_data[acc_id], marker='o', linewidth=2, label=name)
+            line, = plt.plot(plot_dates, plot_data[acc_id], marker='o', linewidth=2, label=name)
+            for i, d in enumerate(plot_dates):
+                info = _build_hover_text(d, acc_id, name, plot_data[acc_id][i], timeline_data)
+                plotted_points.append((d, plot_data[acc_id][i], info))
     else:
-        # Plot data points *only* for days where the value changed
         for acc_id, name in account_names.items():
             x_dates = []
             y_balances = []
-            
             last_val = None
             for i, d in enumerate(sorted_dates):
                 current_val = daily_balances[d][acc_id]
-                # Plot if first day, last day, or if value changed from previous day
                 if i == 0 or i == len(sorted_dates) - 1 or current_val != last_val:
                     x_dates.append(d)
                     y_balances.append(current_val)
                 last_val = current_val
                 
-            plt.plot(x_dates, y_balances, marker='o', linewidth=2, drawstyle='steps-post', label=name)
+            line, = plt.plot(x_dates, y_balances, marker='o', linewidth=2, drawstyle='steps-post', label=name)
+            for d, bal in zip(x_dates, y_balances):
+                info = _build_hover_text(d, acc_id, name, bal, timeline_data)
+                plotted_points.append((d, bal, info))
 
-    # Clean Monthly X-Axis Labels formatting constraints
-    ax = plt.gca()
+    # Configure axes, zero line, shading (existing code)
     ax.xaxis.set_major_locator(mdates.MonthLocator())
     ax.xaxis.set_major_formatter(mdates.DateFormatter('%b %Y'))
-
-    # --- NEW: Zero balance reference and below-zero shading ---
-    # Expand y-limits so 0 is always visible, even if all balances are positive/negative
+    
     ylim = ax.get_ylim()
     new_bottom = min(ylim[0], 0)
     new_top = max(ylim[1], 0)
     ax.set_ylim(bottom=new_bottom, top=new_top)
-
-    # Bold zero line
     ax.axhline(0, color='red', linewidth=2, linestyle='-', alpha=0.8, label='Zero Balance')
-
-    # Light red shading below zero
     ax.axhspan(0, new_bottom, facecolor='red', alpha=0.1)
-
-    # Optionally you can move the zero line to the back by setting its zorder, e.g.:
-    # ax.axhline(0, color='red', linewidth=2, linestyle='-', alpha=0.8, zorder=0)
-    # ax.axhspan(0, new_bottom, facecolor='red', alpha=0.1, zorder=0)
 
     plt.title("Projected Portfolio Flow Allocation Balances", fontsize=13, fontweight='bold')
     plt.xlabel("Timeline Horizon Intervals", fontsize=10)
@@ -185,9 +182,83 @@ def generate_graph(daily_balances, account_names, show_month_end_only=False):
     plt.legend(loc="upper left", frameon=True, shadow=True)
     plt.gcf().autofmt_xdate()
     plt.tight_layout()
-    
-    print("\nDisplaying balance trend visualization map... Close chart graphical runtime viewport to exit script.")
+
+    # --- Interactive hover annotation ---
+    annotation = ax.annotate("",
+                             xy=(0, 0),
+                             xytext=(12, 12),
+                             textcoords='offset points',
+                             bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.9),
+                             arrowprops=dict(arrowstyle='->', color='black'),
+                             zorder=10)
+    annotation.set_visible(False)
+
+    def _hover(event):
+        if event.inaxes != ax:
+            annotation.set_visible(False)
+            plt.draw()
+            return
+
+        # Transform data points to display coordinates for fast distance check
+        closest = None
+        min_dist = float('inf')
+        threshold = 10  # pixels
+
+        for x_d, y_val, info in plotted_points:
+            # Convert data point to display coordinates
+            disp_x, disp_y = ax.transData.transform((mdates.date2num(x_d), y_val))
+            # Mouse event already in display coords
+            dist = ((event.x - disp_x) ** 2 + (event.y - disp_y) ** 2) ** 0.5
+            if dist < min_dist:
+                min_dist = dist
+                closest = (x_d, y_val, info)
+
+        if closest and min_dist <= threshold:
+            x_d, y_val, info = closest
+            annotation.xy = (mdates.date2num(x_d), y_val)
+            annotation.set_text(info)
+            annotation.set_visible(True)
+            plt.draw()
+        else:
+            annotation.set_visible(False)
+            plt.draw()
+
+    ax.figure.canvas.mpl_connect('motion_notify_event', _hover)
+    # Optional: also handle click events (pin the annotation)
+    def _click(event):
+        if event.inaxes == ax:
+            _hover(event)  # Reuse the same logic – click acts as a "hover"
+    ax.figure.canvas.mpl_connect('button_press_event', _click)
+
+    print("\nDisplaying balance trend visualization map... Hover over any marker to see transaction details.")
     plt.show()
+
+def _build_hover_text(day, acc_id, account_name, balance, timeline_data):
+    """
+    Creates the tooltip text for a specific point on the graph.
+    Shows the date, account, balance, and any transactions that occurred that day.
+    """
+    lines = [f"Date: {day.isoformat()}",
+             f"Account: {account_name}",
+             f"Balance: ${balance:,.2f}"]
+    
+    txs = timeline_data.get(day, [])
+    if any(tx.get('src_acc') == acc_id or tx.get('dst_acc') == acc_id for tx in txs):
+        lines.append("")
+        lines.append("Transactions:")
+        for tx in txs:
+            src_id, dst_id = tx['src_acc'], tx['dst_acc']
+            amount = tx['amount']
+            desc = tx.get('wording', '')
+            if src_id == acc_id and dst_id:
+                lines.append(f"  TRSF OUT: -${abs(amount):,.2f} {desc}")
+            elif dst_id == acc_id and src_id:
+                lines.append(f"  TRSF IN: +${abs(amount):,.2f} {desc}")
+            elif src_id == acc_id:
+                lines.append(f"  DEBIT: -${abs(amount):,.2f} {desc}")
+            elif dst_id == acc_id:
+                lines.append(f"  CREDIT: +${abs(amount):,.2f} {desc}")
+    return "\n".join(lines)
 
 def run_forecast(xml_file_path, filter_patterns, force_reconfigure, start_date_str, end_date_str, days_horizon, show_month_end):
     """
@@ -355,7 +426,7 @@ def run_forecast(xml_file_path, filter_patterns, force_reconfigure, start_date_s
         current_step_date += timedelta(days=1)
 
     # Step E: Trigger structural graphical plot renderer engine parameters mapping states
-    generate_graph(daily_snapshot_records, account_names, show_month_end)
+    generate_graph(daily_snapshot_records, account_names, show_month_end, timeline_data=timeline)
 
 
 if __name__ == "__main__":
@@ -373,4 +444,3 @@ if __name__ == "__main__":
     
     args = parser.parse_args()
     run_forecast(args.xml_file, args.filter, args.reconfigure, args.start_date, args.end_date, args.days, args.month_end)
-
