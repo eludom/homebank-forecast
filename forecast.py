@@ -113,7 +113,6 @@ def load_or_create_config(xml_file_path, filter_patterns=None, force_reconfigure
     print(f"\nConfiguration parameter matrix successfully saved to local schema path '{CONFIG_FILE}'.")
     return config_data
 
-
 def generate_graph(daily_balances, account_names, show_month_end_only=False):
     """
     Renders timeline balances. Custom-tailored to label x-axis strictly monthly, 
@@ -161,18 +160,34 @@ def generate_graph(daily_balances, account_names, show_month_end_only=False):
     ax = plt.gca()
     ax.xaxis.set_major_locator(mdates.MonthLocator())
     ax.xaxis.set_major_formatter(mdates.DateFormatter('%b %Y'))
-    
+
+    # --- NEW: Zero balance reference and below-zero shading ---
+    # Expand y-limits so 0 is always visible, even if all balances are positive/negative
+    ylim = ax.get_ylim()
+    new_bottom = min(ylim[0], 0)
+    new_top = max(ylim[1], 0)
+    ax.set_ylim(bottom=new_bottom, top=new_top)
+
+    # Bold zero line
+    ax.axhline(0, color='red', linewidth=2, linestyle='-', alpha=0.8, label='Zero Balance')
+
+    # Light red shading below zero
+    ax.axhspan(0, new_bottom, facecolor='red', alpha=0.1)
+
+    # Optionally you can move the zero line to the back by setting its zorder, e.g.:
+    # ax.axhline(0, color='red', linewidth=2, linestyle='-', alpha=0.8, zorder=0)
+    # ax.axhspan(0, new_bottom, facecolor='red', alpha=0.1, zorder=0)
+
     plt.title("Projected Portfolio Flow Allocation Balances", fontsize=13, fontweight='bold')
     plt.xlabel("Timeline Horizon Intervals", fontsize=10)
     plt.ylabel("Projected System Liquid Currency Worth Value ($)", fontsize=10)
     plt.grid(True, linestyle=':', alpha=0.5)
     plt.legend(loc="upper left", frameon=True, shadow=True)
-    plt.gcf().autofmt_xdate() # Auto-rotate dates nicely
+    plt.gcf().autofmt_xdate()
     plt.tight_layout()
     
     print("\nDisplaying balance trend visualization map... Close chart graphical runtime viewport to exit script.")
     plt.show()
-
 
 def run_forecast(xml_file_path, filter_patterns, force_reconfigure, start_date_str, end_date_str, days_horizon, show_month_end):
     """
