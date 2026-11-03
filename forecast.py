@@ -113,6 +113,20 @@ def load_or_create_config(xml_file_path, filter_patterns=None, force_reconfigure
     print(f"\nConfiguration parameter matrix successfully saved to local schema path '{CONFIG_FILE}'.")
     return config_data
 
+def _matches_tags(tags_str, filter_tags):
+    """Return True if any filter tag is a substring of any transaction tag (case-insensitive)."""
+    if not filter_tags:
+        return True
+    if not tags_str:
+        return False
+    tx_tags = [t.strip() for t in tags_str.split(',')]
+    for f in filter_tags:
+        fl = f.lower()
+        for t in tx_tags:
+            if fl in t.lower():
+                return True
+    return False
+
 def generate_graph(daily_balances, account_names, show_month_end_only=False, timeline_data=None):
     """
     Renders timeline balances. Custom-tailored to label x-axis strictly monthly, 
@@ -250,17 +264,19 @@ def _build_hover_text(day, acc_id, account_name, balance, timeline_data):
             src_id, dst_id = tx['src_acc'], tx['dst_acc']
             amount = tx['amount']
             desc = tx.get('wording', '')
+            tags = tx.get('tags', '')
+            tag_str = f" [tags: {tags}]" if tags else ""
             if src_id == acc_id and dst_id:
-                lines.append(f"  TRSF OUT: -${abs(amount):,.2f} {desc}")
+                lines.append(f"  TRSF OUT: -${abs(amount):,.2f} {desc}{tag_str}")
             elif dst_id == acc_id and src_id:
-                lines.append(f"  TRSF IN: +${abs(amount):,.2f} {desc}")
+                lines.append(f"  TRSF IN: +${abs(amount):,.2f} {desc}{tag_str}")
             elif src_id == acc_id:
-                lines.append(f"  DEBIT: -${abs(amount):,.2f} {desc}")
+                lines.append(f"  DEBIT: -${abs(amount):,.2f} {desc}{tag_str}")
             elif dst_id == acc_id:
-                lines.append(f"  CREDIT: +${abs(amount):,.2f} {desc}")
+                lines.append(f"  CREDIT: +${abs(amount):,.2f} {desc}{tag_str}")
     return "\n".join(lines)
 
-def run_forecast(xml_file_path, filter_patterns, force_reconfigure, start_date_str, end_date_str, days_horizon, show_month_end):
+def run_forecast(xml_file_path, filter_patterns, force_reconfigure, start_date_str, end_date_str, days_horizon, show_month_end, filter_tags=None):
     """
     Main execution pipeline. Parses database structures, builds clean timelines,
     and runs simulation logs with historical tracking alignment safeguards.
@@ -282,6 +298,9 @@ def run_forecast(xml_file_path, filter_patterns, force_reconfigure, start_date_s
 
     # Compile regex runtime target mask
     compiled_regexes = [re.compile(p, re.IGNORECASE) for p in filter_patterns] if filter_patterns else []
+    
+    # Compile tag filters into a set for fast lookup
+    filter_tags = [t.strip() for t in filter_tags] if filter_tags else []
     
     tracked_ids = []
     balances = {}
@@ -315,6 +334,10 @@ def run_forecast(xml_file_path, filter_patterns, force_reconfigure, start_date_s
         ope_date = parse_hb_date(ope.get('date'))
         if not ope_date: continue
         
+        # Tag filter check
+        if not _matches_tags(ope.get('tags', ''), filter_tags):
+            continue
+        
         amount = float(ope.get('amount', 0))
         src_acc = ope.get('account')
         dst_acc = ope.get('dst_account')
@@ -324,18 +347,22 @@ def run_forecast(xml_file_path, filter_patterns, force_reconfigure, start_date_s
             if ope_date < start_date:
                 historical_delta[src_acc] += amount
             elif ope_date <= end_date:
-                timeline[ope_date].append({'amount': amount, 'src_acc': src_acc, 'dst_acc': dst_acc, 'wording': ope.get('wording', '')})
+                timeline[ope_date].append({'amount': amount, 'src_acc': src_acc, 'dst_acc': dst_acc, 'wording': ope.get('wording', ''), 'tags': ope.get('tags', '')})
                 
         if dst_acc in tracked_ids and ope_date > account_as_of[dst_acc]:
             if ope_date < start_date:
                 historical_delta[dst_acc] -= amount # Received transfers add balance inversely in ledger rules
             elif ope_date <= end_date:
-                timeline[ope_date].append({'amount': amount, 'src_acc': src_acc, 'dst_acc': dst_acc, 'wording': ope.get('wording', '')})
+                timeline[ope_date].append({'amount': amount, 'src_acc': src_acc, 'dst_acc': dst_acc, 'wording': ope.get('wording', ''), 'tags': ope.get('tags', '')})
 
     # Step B: Scan structural instances of recurring Favorites elements (<fav>)
     for fav in root.findall('fav'):
         raw_next_date = fav.get('nextdate')
         if not raw_next_date: continue
+        
+        # Tag filter check
+        if not _matches_tags(fav.get('tags', ''), filter_tags):
+            continue
             
         current_due_date = parse_hb_date(raw_next_date)
         amount = float(fav.get('amount', 0))
@@ -362,10 +389,10 @@ def run_forecast(xml_file_path, filter_patterns, force_reconfigure, start_date_s
             if final_date <= end_date:
                 if src_acc in tracked_ids and final_date > account_as_of[src_acc]:
                     if final_date < start_date: historical_delta[src_acc] += amount
-                    else: timeline[final_date].append({'amount': amount, 'src_acc': src_acc, 'dst_acc': dst_acc, 'wording': wording, 'is_fav': True})
+                    else: timeline[final_date].append({'amount': amount, 'src_acc': src_acc, 'dst_acc': dst_acc, 'wording': wording, 'is_fav': True, 'tags': fav.get('tags', '')})
                 if dst_acc in tracked_ids and final_date > account_as_of[dst_acc]:
                     if final_date < start_date: historical_delta[dst_acc] -= amount
-                    else: timeline[final_date].append({'amount': amount, 'src_acc': src_acc, 'dst_acc': dst_acc, 'wording': wording, 'is_fav': True})
+                    else: timeline[final_date].append({'amount': amount, 'src_acc': src_acc, 'dst_acc': dst_acc, 'wording': wording, 'is_fav': True, 'tags': fav.get('tags', '')})
 
             # Advance recurrence sequence context parameters
             if unit == 0: current_due_date += timedelta(days=every)
@@ -388,7 +415,7 @@ def run_forecast(xml_file_path, filter_patterns, force_reconfigure, start_date_s
     print("="*110)
     print(f"FORECAST TIMELINE ({start_date.isoformat()} to {end_date.isoformat()})")
     print("="*110)
-    print(f"{'Date':<11} | {'Account':<30} | {'Change':<12} | {'Proj Balance':<14} | {'Description'}")
+    print(f"{'Date':<11} | {'Account':<30} | {'Change':<12} | {'Proj Balance':<14} | {'Description / Tags'}")
     print("="*110)
 
     daily_snapshot_records = {}
@@ -408,18 +435,20 @@ def run_forecast(xml_file_path, filter_patterns, force_reconfigure, start_date_s
 
                 src_id, dst_id, amount = tx['src_acc'], tx['dst_acc'], tx['amount']
                 desc = tx['wording'][:40]
-
+                tags_display = tx.get('tags', '').strip()
+                tag_suffix = f" [tags: {tags_display}]" if tags_display else ""
+                
                 if dst_id: # Double entry calculation mapping rules
                     if src_id in tracked_ids:
                         balances[src_id] += amount
-                        print(f"{current_step_date.isoformat()} | {account_names[src_id]:<30} | {amount:<12,.2f} | ${balances[src_id]:<13,.2f} | TRSF OUT: {desc}")
+                        print(f"{current_step_date.isoformat()} | {account_names[src_id]:<30} | {amount:<12,.2f} | ${balances[src_id]:<13,.2f} | TRSF OUT: {desc}{tag_suffix}")
                     if dst_id in tracked_ids:
                         balances[dst_id] -= amount
-                        print(f"{current_step_date.isoformat()} | {account_names[dst_id]:<30} | {-amount:<12,.2f} | ${balances[dst_id]:<13,.2f} | TRSF IN: {desc}")
+                        print(f"{current_step_date.isoformat()} | {account_names[dst_id]:<30} | {-amount:<12,.2f} | ${balances[dst_id]:<13,.2f} | TRSF IN: {desc}{tag_suffix}")
                 else:
                     if src_id in tracked_ids:
                         balances[src_id] += amount
-                        print(f"{current_step_date.isoformat()} | {account_names[src_id]:<30} | {amount:<12,.2f} | ${balances[src_id]:<13,.2f} | {desc}")
+                        print(f"{current_step_date.isoformat()} | {account_names[src_id]:<30} | {amount:<12,.2f} | ${balances[src_id]:<13,.2f} | {desc}{tag_suffix}")
             print("-" * 110)
             
         daily_snapshot_records[current_step_date] = balances.copy()
@@ -435,6 +464,7 @@ if __name__ == "__main__":
         epilog="Example: ./forecast.py my_finances.xhb --filter 'PNC' -s 2026-11-01 -e 2027-01-30"
     )
     parser.add_argument("-f", "--filter", action="append", metavar="PATTERN", help="Regex pattern to filter target account names (repeatable: -f Chase -f PNC)")
+    parser.add_argument("--tags", action="append", metavar="TAG", help="Only include transactions that have at least one of these tags (repeatable). Example: --tags fixed --tags reserve")
     parser.add_argument("-r", "--reconfigure", action="store_true", help="Bypasses configuration caches forcing onboarding setup wizard prompts")
     parser.add_argument("-s", "--start-date", help="Simulation timeline sequence start date boundary (YYYY-MM-DD)")
     parser.add_argument("-e", "--end-date", help="Simulation timeline sequence absolute end date boundary (YYYY-MM-DD)")
@@ -443,4 +473,4 @@ if __name__ == "__main__":
     parser.add_argument("xml_file", help="System path string targeting the native HomeBank transaction file container (.xhb)")
     
     args = parser.parse_args()
-    run_forecast(args.xml_file, args.filter, args.reconfigure, args.start_date, args.end_date, args.days, args.month_end)
+    run_forecast(args.xml_file, args.filter, args.reconfigure, args.start_date, args.end_date, args.days, args.month_end, args.tags)
