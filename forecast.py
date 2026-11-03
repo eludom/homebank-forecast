@@ -348,13 +348,13 @@ if __name__ == "__main__":
         description="Extracts scheduled operations from native HomeBank (.xhb) XML archives to calculate cash flow projections.",
         epilog="Example: ./forecast.py my_finances.xhb --filter 'PNC' -s 2026-11-01 -e 2027-01-30"
     )
-    parser.add_argument("xml_file", help="System path string targeting the native HomeBank transaction file container (.xhb)")
-    parser.add_argument("-f", "--filter", nargs="+", metavar="PATTERN", help="Space-separated list of regex patterns to filter target account names")
+    parser.add_argument("-f", "--filter", action="append", metavar="PATTERN", help="Regex pattern to filter target account names (repeatable: -f Chase -f PNC)")
     parser.add_argument("-r", "--reconfigure", action="store_true", help="Bypasses configuration caches forcing onboarding setup wizard prompts")
     parser.add_argument("-s", "--start-date", help="Simulation timeline sequence start date boundary (YYYY-MM-DD)")
     parser.add_argument("-e", "--end-date", help="Simulation timeline sequence absolute end date boundary (YYYY-MM-DD)")
     parser.add_argument("-d", "--days", type=int, help="Relative duration rolling horizon cutoff span parameter (Days)")
     parser.add_argument("-m", "--month-end", action="store_true", help="Aggregates visual performance plots to trace only trailing month end boundaries")
+    parser.add_argument("xml_file", help="System path string targeting the native HomeBank transaction file container (.xhb)")
     
     args = parser.parse_args()
     run_forecast(args.xml_file, args.filter, args.reconfigure, args.start_date, args.end_date, args.days, args.month_end)
