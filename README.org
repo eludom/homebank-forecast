@@ -10,7 +10,7 @@ It was written because HomeBank is great at tracking history, but I wanted bette
 
 #+CAPTION: Projected balances
 #+ATTR_HTML: :width 600px
-[[file:forecast.jpeg]
+[[file:forecast.jpeg]]
 
 ** Installation
 
@@ -113,5 +113,4 @@ GPL-3.0-or-later. See the script header for details.
 * Future/new features?
 ** TODO Align balance calculations perfectly with homebank
 *  The forecast_config.json file exists to force current/recent balance to "known good" this is a concession to the fact that it is not calculating/tracking homebank's own running balance calculation perfectly.  Given the focus mainly forecasting form now into the future, this is the easiest thing to do, but requires setting the "known good" balances.
-
 
