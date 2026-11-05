@@ -93,9 +93,21 @@ Run =./forecast.py -h= for all options.
 
 1. A console ledger showing each future transaction:
 
-   | Date       | Account  | Change      | Proj Balance | Description |
-   |------------|----------|-------------|--------------|-------------|
-   | 2026-12-01 | Checking | -1,200.00   | $4,530.00    | Rent        |
+#+begin_example
+==============================================================================================================
+FORECAST TIMELINE (2026-11-05 to 2027-12-10)
+==============================================================================================================
+Date        | Account                        | Change       | Proj Balance   | Description / Tags
+==============================================================================================================
+2026-12-03 | PNC Visa (xxxxx)               | -9.95        | $-241.95       | HURRICANE ELECTRIC LLC 510-58041 00 CA   [tags: recurring]
+--------------------------------------------------------------------------------------------------------------
+2026-12-04 | PNC Spend (xxxxx)              | 750.00       | $1,750.00      | TRSF IN: monthly discretionary income.   [tags: faux transfer]
+--------------------------------------------------------------------------------------------------------------
+2026-12-05 | PNC Spend (xxxxx)              | -55.00       | $1,695.00      | TRSF OUT: ESTIMATE - PNC Visa payoff.  Once Actual [tags: transfer]
+2026-12-05 | PNC Visa (xxxxx)               | 55.00        | $-186.95       | TRSF IN: ESTIMATE - PNC Visa payoff.  Once Actual [tags: transfer]
+--------------------------------------------------------------------------------------------------------------
+#+end_example
+
 
 2. A matplotlib chart titled *Projected Portfolio Flow Allocation Balances*, plotting each tracked account's balance over time with clean monthly axis labels.
 
@@ -112,5 +124,5 @@ GPL-3.0-or-later. See the script header for details.
 
 * Future/new features?
 ** TODO Align balance calculations perfectly with homebank
-*  The forecast_config.json file exists to force current/recent balance to "known good" this is a concession to the fact that it is not calculating/tracking homebank's own running balance calculation perfectly.  Given the focus mainly forecasting form now into the future, this is the easiest thing to do, but requires setting the "known good" balances.
+  The forecast_config.json file exists to force current/recent balance to "known good" this is a concession to the fact that it is not calculating/tracking homebank's own running balance calculation perfectly.  Given the focus mainly forecasting form now into the future, this is the easiest thing to do, but requires setting the "known good" balances.
 
