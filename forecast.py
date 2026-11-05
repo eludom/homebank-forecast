@@ -337,6 +337,18 @@ def run_forecast(xml_file_path, filter_patterns, force_reconfigure, start_date_s
         # Tag filter check
         if not _matches_tags(ope.get('tags', ''), filter_tags):
             continue
+
+        seen_kxfer = set()
+        if ope.get('dst_account'):
+            # Skip the positive mirror row (the "deposit-looking" duplicate)
+            if float(ope.get('amount', 0)) > 0:
+                continue
+            # Also skip any second copy that has the same kxfer
+            kxfer = ope.get('kxfer')
+            if kxfer:
+                if kxfer in seen_kxfer:
+                    continue
+                seen_kxfer.add(kxfer)
         
         amount = float(ope.get('amount', 0))
         src_acc = ope.get('account')
@@ -377,7 +389,15 @@ def run_forecast(xml_file_path, filter_patterns, force_reconfigure, start_date_s
         if src_acc not in tracked_ids and dst_acc not in tracked_ids:
             continue
 
+        limit = int(fav.get('limit', 0))      # 0 = unlimited
+        number = int(fav.get('number', 0))    # how many times already paid (if present)
+        remaining = (limit - number) if limit > 0 else None
+        occurrence_count = 0
+        
         while current_due_date <= end_date:
+            if remaining is not None and occurrence_count >= remaining:
+                break
+            
             final_date = current_due_date
             if final_date.weekday() >= 5:
                 if weekend_rule == 1:
@@ -394,6 +414,8 @@ def run_forecast(xml_file_path, filter_patterns, force_reconfigure, start_date_s
                     if final_date < start_date: historical_delta[dst_acc] -= amount
                     else: timeline[final_date].append({'amount': amount, 'src_acc': src_acc, 'dst_acc': dst_acc, 'wording': wording, 'is_fav': True, 'tags': fav.get('tags', '')})
 
+            occurrence_count += 1   # count this scheduled occurrence
+            
             # Advance recurrence sequence context parameters
             if unit == 0: current_due_date += timedelta(days=every)
             elif unit == 1: current_due_date += timedelta(weeks=every)
